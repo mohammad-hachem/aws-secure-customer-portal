@@ -1,8 +1,16 @@
 # AWS Secure Customer Portal
 
-A hands-on AWS reference architecture for a secure customer-facing web application, built manually first, validated through real tests, and then fully adopted into Terraform.
+A hands-on AWS reference architecture for a customer-facing application that must be reachable from the Internet while keeping application servers, database access, credentials, and administrative paths off the public Internet.
 
-The project focuses on secure edge delivery, private compute, managed identity, autoscaling, event-driven processing, monitoring, auditability, threat detection, and infrastructure-as-code.
+I built the environment manually first, validated the service integrations with real tests, troubleshot failures as they appeared, and then adopted the working environment into Terraform until the final plan showed no drift.
+
+```text
+Manual build → Functional testing → Failure diagnosis
+→ Terraform import/adoption → Plan review → Apply
+→ Final plan: No changes
+```
+
+The project focuses on secure edge delivery, private compute, managed identity, Auto Scaling, event-driven processing, monitoring, auditability, threat detection, and Infrastructure as Code.
 
 ## Architecture
 
@@ -20,9 +28,7 @@ The hands-on lab intentionally reduced recurring cost while preserving the same 
 | VPC endpoints | S3, Secrets Manager, SSM, SSM Messages | Deployed |
 | ALB / app subnets | Multi-AZ | Multi-AZ |
 
-The NAT Gateways provide general outbound Internet connectivity for private instances when workloads need public package repositories, third-party APIs, or AWS services without a VPC endpoint. Where PrivateLink or a gateway endpoint is available, the reference design keeps those AWS-service paths private.
-
-A compact logical flow remains:
+A compact logical flow:
 
 ```mermaid
 flowchart LR
@@ -42,26 +48,50 @@ flowchart LR
 
 More detail: [Architecture notes](docs/architecture.md)
 
-## Design Highlights
+## What I Actually Tested and Troubleshot
 
-- **CloudFront + AWS WAF** provide the public edge and web protection.
-- **ALB** accepts HTTPS from the AWS-managed CloudFront origin-facing prefix list rather than from arbitrary internet sources.
-- **Amazon Cognito** protects the application before ALB forwards requests to the target group.
-- **EC2 Auto Scaling** runs the application only in private subnets.
-- **Amazon RDS PostgreSQL** runs in private database subnets and is reachable only from the application security group.
-- **Secrets Manager** stores database credentials and is reached privately through an interface VPC endpoint.
-- **Amazon S3** is reached through a gateway endpoint. The production/reference design also uses one NAT Gateway per AZ for general outbound Internet access while keeping supported AWS-service traffic on VPC endpoints.
-- **S3 → SQS → Lambda** provides asynchronous event processing.
-- **CloudWatch → SNS** provides operational alerting.
-- **CloudTrail** records management events to a private S3 bucket.
-- **GuardDuty** provides threat detection.
-- **Systems Manager** provides private operating-system administration without requiring inbound SSH.
-- **EC2 Instance Connect Endpoint** remains available as a private SSH path.
-- **Terraform** manages the final infrastructure configuration.
+This project was not limited to resource deployment. I deliberately tested the application paths and worked through failures in the running environment.
 
-## Network Model
+Three useful troubleshooting cases are documented below:
 
-The VPC is segmented into:
+1. **[Auto Scaling health-check convergence](#1-auto-scaling-health-check-convergence)** — the application returned HTTP 200, but a new instance was still replaced by the ASG.
+2. **[Systems Manager private endpoint connectivity](#2-systems-manager-private-endpoint-connectivity)** — private DNS resolved correctly, but SSM still timed out.
+3. **[Cognito / ALB client-secret failure](#3-cognito--alb-client-secret-failure)** — rotating the app-client secret caused ALB authentication failures.
+
+The broader validation included:
+
+| Area | Validation |
+|---|---|
+| WAF | Rate-based blocking tested |
+| ALB | Direct origin access restricted |
+| Cognito | Authentication flow tested |
+| EC2 ASG | Scale-out and scale-in tested |
+| RDS | Application DB connectivity tested |
+| Secrets Manager | Private credential retrieval tested |
+| S3 | Private endpoint access tested |
+| SQS/Lambda | Event processing and DLQ tested |
+| CloudWatch/SNS | Alarm notification lifecycle tested |
+| CloudTrail | Management events and S3 delivery tested |
+| Systems Manager | Managed instance online + Run Command tested |
+| GuardDuty | Sample findings generated |
+| Terraform | Final plan returned no changes |
+
+## Key Engineering Lessons
+
+These were the most transferable lessons from the lab:
+
+- A healthy application process does not guarantee that Auto Scaling health convergence is correctly tuned.
+- ALB health thresholds, application bootstrap time, ASG grace periods, and scaling warm-up need to be considered together.
+- Private DNS alone is not enough for interface endpoints; the security-group path must also allow the traffic.
+- VPC endpoints can eliminate the need for general Internet egress when a workload only needs selected AWS services.
+- CloudFront origin restriction prevents users from bypassing WAF and reaching the ALB directly.
+- Systems Manager can provide normal private administrative access without inbound SSH.
+- Terraform adoption of existing infrastructure requires careful imports and inspection of every proposed change.
+- A final no-drift plan is useful proof that the deployed environment and the IaC definition are synchronized.
+
+## Security and Network Design
+
+The VPC uses:
 
 - 2 public subnets for the internet-facing ALB
 - 2 private application subnets for EC2
@@ -69,85 +99,65 @@ The VPC is segmented into:
 
 Application and database instances have no public IP addresses.
 
-In the **production/reference design**, each Availability Zone has its own NAT Gateway so private application instances can reach public package repositories, external APIs, and other Internet destinations without becoming publicly reachable. Each private application subnet routes outbound Internet traffic through the NAT Gateway in the same AZ.
+The request path is:
 
-Selected AWS services still use private VPC endpoints:
+```text
+Users → Route 53 → CloudFront → AWS WAF → ALB
+      → Cognito authentication → EC2 application → RDS PostgreSQL
+```
+
+The ALB accepts HTTPS only from the AWS-managed CloudFront origin-facing prefix list, preventing direct Internet bypass of CloudFront and WAF.
+
+The private application tier uses:
+
+- Encrypted EBS
+- IMDSv2
+- IAM instance profile
+- Security-group-to-security-group access
+- Secrets Manager for database credentials
+- Systems Manager for administration
+- EC2 Instance Connect Endpoint as an additional private SSH path
+
+The database security path is intentionally narrow:
+
+```text
+Application SG → TCP/5432 → Database SG
+```
+
+### Private AWS Access and NAT
+
+Selected AWS services use private endpoints:
 
 - S3 Gateway Endpoint
 - Secrets Manager Interface Endpoint
 - Systems Manager Interface Endpoint
 - SSM Messages Interface Endpoint
 
-The **hands-on lab omitted the NAT Gateways** to reduce recurring cost and intentionally relied on the VPC endpoints above for required AWS-service connectivity.
+The **production/reference design** also uses one NAT Gateway per AZ so private instances can reach public package repositories, third-party APIs, and other Internet destinations without receiving public IP addresses.
 
-## Security Controls
+The **hands-on lab omitted NAT Gateways** to reduce recurring cost and intentionally relied on VPC endpoints for the AWS services required by the application.
 
-### Edge
+## Cost-Conscious Lab Choices
 
-Traffic path:
+I kept the hands-on environment intentionally smaller than the production reference design because the goal was to validate the architecture and operating behavior without paying for unnecessary steady-state capacity.
 
-```text
-Users → Route 53 → CloudFront → WAF → ALB
-```
+The main cost reductions were:
 
-AWS WAF was configured with:
+- ASG steady state of **1 instance** instead of maintaining 2+ instances continuously
+- **Single-AZ RDS** instead of Multi-AZ RDS
+- **No NAT Gateways**
+- Systems Manager interface endpoints deployed in only the required lab subnet
+- Small ARM-based EC2 and RDS instance classes
 
-- Rate-based blocking
-- Amazon IP reputation rules
-- Common web application protections
-- Known bad input protections
+These choices reduce recurring lab cost, but they are not the production HA recommendation. The reference architecture keeps the multi-AZ design so the availability trade-off is explicit rather than hidden.
 
-The ALB HTTPS security group rule is restricted to the AWS-managed CloudFront origin-facing prefix list.
+I have intentionally not put a single monthly dollar figure here because several components are usage-dependent, including ALB LCUs, CloudFront, WAF, GuardDuty, data transfer, and interface endpoint traffic.
 
-### Authentication
+## Troubleshooting
 
-The ALB HTTPS listener uses Amazon Cognito authentication before forwarding authenticated requests to the application.
+### 1. Auto Scaling Health-Check Convergence
 
-The Cognito user pool uses:
-
-- Administrative user creation
-- Email verification
-- TOTP MFA support
-- Managed Login
-- Authorization Code flow
-
-### Private Application Tier
-
-EC2 instances use:
-
-- Private subnets
-- No public IP
-- Encrypted EBS
-- IMDSv2
-- IAM instance profile
-- Security-group-to-security-group access
-- Systems Manager for administration
-
-### Database
-
-RDS PostgreSQL is isolated in private database subnets.
-
-The only database path is:
-
-```text
-Application SG → TCP/5432 → Database SG
-```
-
-Database credentials are retrieved from Secrets Manager instead of being stored in application configuration.
-
-## Auto Scaling Validation
-
-The application Auto Scaling Group uses target tracking:
-
-- Minimum: 1
-- Desired: 1
-- Maximum: 2
-- Metric: `ASGAverageCPUUtilization`
-- Target: 30%
-- Estimated instance warm-up: 60 seconds
-- Health check type: ELB
-
-A CPU load test was generated on the active application instance:
+To validate target tracking, I generated sustained CPU load using one `yes` process per available vCPU:
 
 ```bash
 for i in $(seq 1 $(nproc)); do
@@ -155,23 +165,20 @@ for i in $(seq 1 $(nproc)); do
 done
 ```
 
-The target-tracking alarm caused the ASG to increase desired capacity from 1 to 2.
+This was intentionally simple: the goal was not benchmarking, but creating predictable CPU pressure that would trigger the target-tracking policy.
 
-After stopping the load:
+The ASG scaled from 1 to 2 instances, but the first new instance was replaced even though the application itself was healthy.
 
-```bash
-pkill yes
+I verified:
+
+```text
+secure-portal.service → active
+GET /health → HTTP 200
 ```
 
-the environment later scaled back to one instance, validating both scale-out and scale-in behavior.
+The problem was timing rather than application failure. The target group originally required 5 consecutive successful health checks at a 30-second interval. Combined with bootstrap time, that could exceed the ASG health-check grace period.
 
-### Health Check Troubleshooting
-
-The first replacement instance was healthy at the application layer but was declared unhealthy by the Auto Scaling Group before it accumulated enough successful ALB health checks.
-
-The original target-group setting required 5 consecutive successful checks. With a 30-second interval and application bootstrap time, convergence could exceed the ASG health-check grace period.
-
-The final target-group settings are:
+I changed the target group to:
 
 ```text
 Path                /health
@@ -182,73 +189,45 @@ Unhealthy threshold 2
 Matcher             200
 ```
 
-After the change, replacement instances reached healthy state correctly.
+The replacement instance then reached healthy state correctly.
 
-## Event-Driven Processing
+After stopping the CPU load:
 
-The data-processing path is:
-
-```text
-S3 → SQS → Lambda
+```bash
+pkill yes
 ```
 
-The SQS design includes:
+the ASG later scaled back to one instance, validating scale-in and connection draining as well.
 
-- Main processing queue
-- Dead-letter queue
-- Redrive policy
-- Lambda event source mapping
-- Partial batch failure reporting
+### 2. Systems Manager Private Endpoint Connectivity
 
-The queue and DLQ behavior were tested using real S3 object-created events.
+The application instance had:
 
-## Monitoring and Alerting
+- SSM Agent installed and running
+- `AmazonSSMManagedInstanceCore` attached
+- private DNS enabled on the VPC endpoints
 
-A CloudWatch alarm monitors visible messages in the dead-letter queue.
+Initially, the SSM Agent still timed out.
 
-The tested alert path is:
+I checked DNS resolution and confirmed that the standard Systems Manager service names were resolving to the private interface-endpoint IP addresses. That ruled out the DNS side of the path, but HTTPS still failed.
 
-```text
-DLQ message → CloudWatch ALARM → SNS → Email
-```
+The problem was the security-group path between the application instance and the endpoint ENIs.
 
-After the DLQ was purged, the alarm returned to OK.
-
-## CloudTrail
-
-A multi-region CloudTrail trail records AWS management events with:
-
-- Global service events
-- Log file validation
-- Management events only
-- S3 delivery
-- SSE-S3 encryption
-- S3 public-access blocking
-
-The trail was validated both by confirming log delivery to S3 and by generating management API activity and confirming the corresponding events.
-
-## Systems Manager
-
-The EC2 application instance runs the SSM Agent and registers through private interface endpoints.
-
-The final private path is:
+The final model became:
 
 ```text
-Private EC2
-  → TCP/443
-  → SSM / SSM Messages Interface Endpoints
-  → AWS Systems Manager
+Application SG
+  outbound TCP/443
+        ↓
+Dedicated SSM Endpoint SG
+  inbound TCP/443 from Application SG
+        ↓
+SSM + SSM Messages interface endpoints
 ```
 
-The application instance role includes `AmazonSSMManagedInstanceCore`.
+After fixing those rules, the instance registered as `Online`.
 
-Validation included:
-
-- SSM managed-instance status = `Online`
-- Run Command
-- Application service status check
-
-Example:
+I then validated Run Command without SSH:
 
 ```powershell
 aws ssm send-command `
@@ -259,53 +238,99 @@ aws ssm send-command `
 
 The command completed successfully and confirmed that the application service was active.
 
-### SSM Troubleshooting
+### 3. Cognito / ALB Client-Secret Failure
 
-Private DNS initially resolved correctly to VPC endpoint private IPs, but HTTPS connections timed out.
+I also tested Cognito application-client secret rotation.
 
-The root cause was the security-group path between the EC2 application SG and the interface endpoint SG.
+During the experiment, leaving only the secondary secret caused the ALB authentication path to fail with HTTP 561 responses.
 
-The final rule model is:
+Rather than treating the ALB as the problem, I traced the failure back to the Cognito app-client secret state. I created a new app client with a normal primary secret, updated the ALB authentication configuration, validated the login flow, and then adopted the new client into Terraform.
+
+That was a useful reminder that managed-service integrations can fail at the boundary between services even when each service appears healthy in isolation.
+
+## Event-Driven Processing
+
+The asynchronous data-processing path is:
 
 ```text
-Application SG
-  outbound TCP/443
-        ↓
-Dedicated SSM Endpoint SG
-  inbound TCP/443 from Application SG
+S3 → SQS → Lambda
 ```
 
-Both the `ssm` and `ssmmessages` endpoints use the dedicated endpoint security group.
+The queue design includes:
 
-## GuardDuty
+- Main processing queue
+- Dead-letter queue
+- Redrive policy
+- Lambda event source mapping
+- Partial batch failure reporting
 
-GuardDuty was enabled and validated with AWS sample findings.
+I validated the path using real S3 object-created events and tested DLQ behavior.
 
-The configuration used in this lab includes:
+## Monitoring, Audit, and Threat Detection
 
-- Foundational GuardDuty monitoring
-- S3 Protection
-- RDS Protection
-- Lambda Protection
-- EBS Malware Protection
+### CloudWatch and SNS
 
-EKS-related protection and runtime monitoring were disabled because the architecture does not use EKS and does not require GuardDuty runtime agents.
+A CloudWatch alarm monitors visible messages in the SQS dead-letter queue.
 
-## Terraform
+The tested path was:
 
-The project followed a deliberate workflow:
+```text
+DLQ message → CloudWatch ALARM → SNS → Email
+```
 
-1. Build the AWS resources manually.
-2. Validate each service and integration.
-3. Troubleshoot real operational issues.
-4. Define the equivalent Terraform configuration.
-5. Import manually created resources where supported.
-6. Reconcile Terraform with the live environment.
-7. Apply only reviewed, non-destructive changes.
-8. Run a final drift check.
+After the DLQ was purged, the alarm returned to OK.
+
+### CloudTrail
+
+The multi-region trail records management events with:
+
+- Global service events
+- Log file validation
+- S3 delivery
+- SSE-S3 encryption
+- S3 public-access blocking
+
+I validated both S3 delivery and the presence of management API events by changing and restoring an Auto Scaling Group setting.
+
+### GuardDuty
+
+GuardDuty was enabled and validated using AWS sample findings.
+
+The lab enabled the relevant protections for:
+
+- S3
+- RDS
+- Lambda
+- EBS malware protection
+
+EKS-related protection and runtime monitoring remained disabled because this architecture does not use EKS and did not require GuardDuty runtime agents.
+
+## Terraform Adoption
+
+The Terraform part of the project was intentionally an **adoption exercise**, not just a greenfield deployment.
+
+I first built and tested the environment manually. Once the behavior was understood, I defined the equivalent Terraform resources, imported existing infrastructure where supported, reconciled differences, and reviewed every planned change before applying it.
+
+```text
+Manual AWS resources
+        ↓
+Terraform configuration
+        ↓
+terraform import
+        ↓
+terraform plan
+        ↓
+reconcile intended differences
+        ↓
+terraform apply
+        ↓
+terraform plan
+        ↓
+No changes
+```
 
 Terraform source: [terraform/lab](terraform/lab/)  
-Full notes: [Terraform adoption and validation](docs/terraform.md)
+Detailed notes: [Terraform adoption and validation](docs/terraform.md)
 
 Representative workflow:
 
@@ -323,36 +348,16 @@ Final result:
 No changes. Your infrastructure matches the configuration.
 ```
 
-### Resources Managed with Terraform
+The Terraform configuration is organized around a few major areas rather than a single monolithic file:
 
-The configuration covers the major components of the solution, including:
+- Networking and security
+- Compute, load balancing, and Auto Scaling
+- Database, secrets, and IAM
+- CloudFront, Route 53, ACM, Cognito, and WAF integration
+- S3, SQS, Lambda, CloudWatch, and SNS
+- CloudTrail, GuardDuty, and Systems Manager
 
-- VPC and subnets
-- Route tables and Internet Gateway
-- Security groups
-- VPC endpoints
-- EC2 Instance Connect Endpoint
-- Launch Template
-- Auto Scaling Group
-- Target-tracking scaling policy
-- ALB and target group
-- RDS PostgreSQL
-- IAM roles and policies
-- Secrets Manager
-- Route 53
-- ACM
-- Cognito
-- CloudFront
-- S3
-- SQS
-- Lambda
-- CloudWatch
-- SNS
-- CloudTrail
-- Systems Manager connectivity
-- GuardDuty
-
-## Terraform Adoption Examples
+### Adoption Examples
 
 Existing resources were imported instead of recreated.
 
@@ -372,37 +377,8 @@ terraform import aws_guardduty_detector.main `
 
 Individual security-group rules were also imported by their `sgr-...` IDs.
 
-Some GuardDuty detector feature resources do not support Terraform import with the provider version used in this lab. Those feature resources were therefore adopted through a reviewed Terraform apply against the already existing detector.
-
-## Key Lessons
-
-- A healthy application process does not guarantee that Auto Scaling health convergence is correctly tuned.
-- ALB health thresholds, application bootstrap time, ASG grace periods, and scaling warm-up need to be considered together.
-- Private DNS alone is not enough for interface endpoints; the security-group path must also allow traffic.
-- VPC endpoints can replace NAT access for workloads that only need selected AWS services.
-- CloudFront origin restriction prevents bypassing edge security controls.
-- Systems Manager can provide normal private administrative access without inbound SSH.
-- Terraform adoption of existing infrastructure requires careful imports and inspection of every proposed change.
-- A final no-drift plan is a useful proof that the live AWS environment and Infrastructure-as-Code configuration are synchronized.
-
-## Validation Summary
-
-| Area | Validation |
-|---|---|
-| WAF | Rate-based blocking tested |
-| ALB | Direct origin access restricted |
-| Cognito | Authentication flow tested |
-| EC2 ASG | Scale-out and scale-in tested |
-| RDS | Application DB connectivity tested |
-| Secrets Manager | Private credential retrieval tested |
-| S3 | Private endpoint access tested |
-| SQS/Lambda | Event processing and DLQ tested |
-| CloudWatch/SNS | Alarm notification lifecycle tested |
-| CloudTrail | Management events and S3 delivery tested |
-| Systems Manager | Instance online + Run Command tested |
-| GuardDuty | Sample findings generated |
-| Terraform | Final plan returned no changes |
+Some GuardDuty detector feature resources did not support import with the AWS provider version used in the lab, so I added those resources to the configuration and adopted them through a reviewed apply against the existing detector.
 
 ## Scope
 
-This is a hands-on reference architecture and portfolio project designed to demonstrate AWS architecture, security, operations, troubleshooting, and Terraform adoption. It is not presented as a production customer deployment.
+This is a hands-on reference architecture and portfolio project. It demonstrates AWS architecture, security, operations, troubleshooting, and Terraform adoption, but it is not presented as a production customer deployment.
