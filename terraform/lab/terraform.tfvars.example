@@ -1,0 +1,3 @@
+# Copy to terraform.tfvars and replace with your own confirmed SNS email address.
+# terraform.tfvars is intentionally ignored by Git.
+alert_email = "you@example.com"
