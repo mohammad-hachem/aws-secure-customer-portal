@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="940" viewBox="0 0 1600 940">
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+  </marker>
+  <style>
+    .title{font:700 34px Arial,sans-serif;fill:#0f172a}
+    .subtitle{font:400 18px Arial,sans-serif;fill:#475569}
+    .h2{font:700 18px Arial,sans-serif;fill:#0f172a}
+    .label{font:700 15px Arial,sans-serif;fill:#0f172a}
+    .small{font:400 13px Arial,sans-serif;fill:#334155}
+    .tiny{font:400 12px Arial,sans-serif;fill:#475569}
+    .box{rx:12;ry:12;stroke-width:2}
+    .arrow{stroke:#334155;stroke-width:2.4;fill:none;marker-end:url(#arrow)}
+    .dash{stroke-dasharray:7 6}
+  </style>
+</defs>
+
+<rect width="1600" height="940" fill="#ffffff"/>
+<text x="45" y="50" class="title">AWS Secure Customer Portal — Reference Architecture</text>
+<text x="45" y="82" class="subtitle">Highly available production design; hands-on lab used reduced capacity to control cost</text>
+
+<!-- Edge path -->
+<g>
+  <rect x="45" y="120" width="150" height="82" class="box" fill="#f8fafc" stroke="#64748b"/>
+  <text x="120" y="154" text-anchor="middle" class="label">Users</text>
+  <text x="120" y="179" text-anchor="middle" class="small">Internet</text>
+
+  <rect x="235" y="120" width="155" height="82" class="box" fill="#f3e8ff" stroke="#7c3aed"/>
+  <text x="312" y="154" text-anchor="middle" class="label">Route 53</text>
+  <text x="312" y="179" text-anchor="middle" class="small">DNS</text>
+
+  <rect x="430" y="120" width="165" height="82" class="box" fill="#ede9fe" stroke="#6d28d9"/>
+  <text x="512" y="154" text-anchor="middle" class="label">CloudFront</text>
+  <text x="512" y="179" text-anchor="middle" class="small">CDN / edge</text>
+
+  <rect x="635" y="120" width="155" height="82" class="box" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="712" y="154" text-anchor="middle" class="label">AWS WAF</text>
+  <text x="712" y="179" text-anchor="middle" class="small">Web protection</text>
+
+  <rect x="830" y="120" width="205" height="82" class="box" fill="#ede9fe" stroke="#6d28d9"/>
+  <text x="932" y="150" text-anchor="middle" class="label">Application Load Balancer</text>
+  <text x="932" y="176" text-anchor="middle" class="small">HTTPS / CloudFront-only origin</text>
+
+  <rect x="1075" y="120" width="180" height="82" class="box" fill="#ffe4e6" stroke="#e11d48"/>
+  <text x="1165" y="154" text-anchor="middle" class="label">Amazon Cognito</text>
+  <text x="1165" y="179" text-anchor="middle" class="small">User authentication</text>
+
+  <path d="M195 161 H235" class="arrow"/>
+  <path d="M390 161 H430" class="arrow"/>
+  <path d="M595 161 H635" class="arrow"/>
+  <path d="M790 161 H830" class="arrow"/>
+  <path d="M1035 161 H1075" class="arrow"/>
+</g>
+
+<!-- VPC -->
+<rect x="45" y="240" width="1210" height="600" rx="16" ry="16" fill="#f8fff8" stroke="#22c55e" stroke-width="3"/>
+<text x="70" y="274" class="h2">VPC — Multi-AZ application and data tiers</text>
+
+<!-- AZ A -->
+<rect x="70" y="300" width="560" height="510" rx="14" ry="14" fill="#ffffff" stroke="#60a5fa" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="90" y="330" class="h2">Availability Zone A</text>
+
+<!-- AZ B -->
+<rect x="650" y="300" width="560" height="510" rx="14" ry="14" fill="#ffffff" stroke="#60a5fa" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="670" y="330" class="h2">Availability Zone B</text>
+
+<!-- Public subnets -->
+<rect x="90" y="350" width="520" height="110" rx="12" ry="12" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+<text x="110" y="376" class="label">Public subnet A</text>
+<rect x="115" y="392" width="205" height="50" class="box" fill="#fff7ed" stroke="#f97316"/>
+<text x="217" y="422" text-anchor="middle" class="label">NAT Gateway A</text>
+<rect x="365" y="392" width="215" height="50" class="box" fill="#ede9fe" stroke="#7c3aed"/>
+<text x="472" y="414" text-anchor="middle" class="label">ALB node</text>
+<text x="472" y="433" text-anchor="middle" class="tiny">public subnet</text>
+
+<rect x="670" y="350" width="520" height="110" rx="12" ry="12" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+<text x="690" y="376" class="label">Public subnet B</text>
+<rect x="695" y="392" width="205" height="50" class="box" fill="#fff7ed" stroke="#f97316"/>
+<text x="797" y="422" text-anchor="middle" class="label">NAT Gateway B</text>
+<rect x="945" y="392" width="215" height="50" class="box" fill="#ede9fe" stroke="#7c3aed"/>
+<text x="1052" y="414" text-anchor="middle" class="label">ALB node</text>
+<text x="1052" y="433" text-anchor="middle" class="tiny">public subnet</text>
+
+<!-- App subnets -->
+<rect x="90" y="485" width="520" height="130" rx="12" ry="12" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+<text x="110" y="512" class="label">Private application subnet A</text>
+<rect x="160" y="535" width="360" height="58" class="box" fill="#ffedd5" stroke="#f97316"/>
+<text x="340" y="560" text-anchor="middle" class="label">EC2 application instance(s)</text>
+<text x="340" y="582" text-anchor="middle" class="small">Auto Scaling Group</text>
+
+<rect x="670" y="485" width="520" height="130" rx="12" ry="12" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+<text x="690" y="512" class="label">Private application subnet B</text>
+<rect x="740" y="535" width="360" height="58" class="box" fill="#ffedd5" stroke="#f97316"/>
+<text x="920" y="560" text-anchor="middle" class="label">EC2 application instance(s)</text>
+<text x="920" y="582" text-anchor="middle" class="small">Auto Scaling Group</text>
+
+<!-- ASG banner -->
+<rect x="335" y="625" width="560" height="52" class="box" fill="#fff7ed" stroke="#f97316"/>
+<text x="615" y="648" text-anchor="middle" class="label">EC2 Auto Scaling — minimum 2 / desired 2 / scale out as needed</text>
+<text x="615" y="668" text-anchor="middle" class="tiny">Instances distributed across both private application subnets</text>
+
+<!-- DB subnets -->
+<rect x="90" y="700" width="520" height="90" rx="12" ry="12" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+<text x="110" y="727" class="label">Private database subnet A</text>
+<rect x="210" y="742" width="280" height="36" class="box" fill="#dbeafe" stroke="#2563eb"/>
+<text x="350" y="766" text-anchor="middle" class="label">RDS PostgreSQL — Primary</text>
+
+<rect x="670" y="700" width="520" height="90" rx="12" ry="12" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+<text x="690" y="727" class="label">Private database subnet B</text>
+<rect x="790" y="742" width="280" height="36" class="box" fill="#dbeafe" stroke="#2563eb"/>
+<text x="930" y="766" text-anchor="middle" class="label">RDS PostgreSQL — Standby</text>
+
+<path d="M490 760 H790" class="arrow dash"/>
+<text x="640" y="750" text-anchor="middle" class="small">Multi-AZ synchronous standby / automatic failover</text>
+
+<!-- ALB to app -->
+<path d="M932 202 V380 H472 V485" class="arrow"/>
+<path d="M932 380 H1052 V485" class="arrow"/>
+<!-- app to DB -->
+<path d="M340 615 V700" class="arrow"/>
+<path d="M920 615 V700" class="arrow"/>
+
+<!-- Side services -->
+<rect x="1290" y="120" width="270" height="720" rx="16" ry="16" fill="#fafafa" stroke="#94a3b8" stroke-width="2"/>
+<text x="1315" y="155" class="h2">Supporting AWS Services</text>
+
+<rect x="1315" y="180" width="220" height="58" class="box" fill="#fdf2f8" stroke="#db2777"/>
+<text x="1425" y="203" text-anchor="middle" class="label">Systems Manager</text>
+<text x="1425" y="225" text-anchor="middle" class="small">SSM + SSM Messages VPCEs</text>
+
+<rect x="1315" y="255" width="220" height="58" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="1425" y="278" text-anchor="middle" class="label">Secrets Manager</text>
+<text x="1425" y="300" text-anchor="middle" class="small">DB credentials / Interface VPCE</text>
+
+<rect x="1315" y="330" width="220" height="58" class="box" fill="#f0fdf4" stroke="#16a34a"/>
+<text x="1425" y="353" text-anchor="middle" class="label">Amazon S3</text>
+<text x="1425" y="375" text-anchor="middle" class="small">Application data / Gateway VPCE</text>
+
+<rect x="1315" y="405" width="105" height="58" class="box" fill="#fff7ed" stroke="#f97316"/>
+<text x="1367" y="440" text-anchor="middle" class="label">SQS</text>
+<rect x="1430" y="405" width="105" height="58" class="box" fill="#fff7ed" stroke="#f97316"/>
+<text x="1482" y="440" text-anchor="middle" class="label">Lambda</text>
+<path d="M1420 434 H1430" class="arrow"/>
+<path d="M1425 388 V405" class="arrow"/>
+<text x="1425" y="487" text-anchor="middle" class="tiny">S3 → SQS → Lambda</text>
+
+<rect x="1315" y="510" width="220" height="58" class="box" fill="#f3e8ff" stroke="#7c3aed"/>
+<text x="1425" y="533" text-anchor="middle" class="label">EC2 Instance Connect Endpoint</text>
+<text x="1425" y="555" text-anchor="middle" class="small">Private SSH path</text>
+
+<rect x="1315" y="585" width="220" height="58" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="1425" y="608" text-anchor="middle" class="label">CloudTrail</text>
+<text x="1425" y="630" text-anchor="middle" class="small">Management events → S3</text>
+
+<rect x="1315" y="660" width="220" height="58" class="box" fill="#fef2f2" stroke="#ef4444"/>
+<text x="1425" y="683" text-anchor="middle" class="label">GuardDuty</text>
+<text x="1425" y="705" text-anchor="middle" class="small">Threat detection</text>
+
+<rect x="1315" y="735" width="220" height="58" class="box" fill="#fff7ed" stroke="#f97316"/>
+<text x="1425" y="758" text-anchor="middle" class="label">CloudWatch → SNS</text>
+<text x="1425" y="780" text-anchor="middle" class="small">Metrics, alarms, email alerts</text>
+
+<!-- VPCE connectivity hint -->
+<path d="M1190 550 H1290" class="arrow dash"/>
+<text x="1240" y="538" text-anchor="middle" class="tiny">Private AWS access</text>
+
+<!-- Footer -->
+<rect x="45" y="865" width="1515" height="52" rx="12" ry="12" fill="#f8fafc" stroke="#cbd5e1"/>
+<text x="70" y="887" class="label">Reference design:</text>
+<text x="195" y="887" class="small">2+ EC2 instances across two AZs • RDS Multi-AZ • NAT Gateway per AZ • VPC endpoints for private AWS-service access</text>
+<text x="70" y="907" class="label">Lab deployment:</text>
+<text x="195" y="907" class="small">ASG 1/1/2 • RDS Single-AZ • no NAT Gateway • same private subnet, security, endpoint, monitoring and Terraform patterns</text>
+</svg>
