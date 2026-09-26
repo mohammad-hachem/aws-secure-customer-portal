@@ -28,23 +28,81 @@ The hands-on lab intentionally reduced recurring cost while preserving the same 
 | VPC endpoints | S3, Secrets Manager, SSM, SSM Messages | Deployed |
 | ALB / app subnets | Multi-AZ | Multi-AZ |
 
-A compact logical flow:
+A native Mermaid view of the topology is included below so the design can be understood directly in GitHub:
 
 ```mermaid
-flowchart LR
-    U[Users] --> R53[Route 53]
-    R53 --> CF[CloudFront]
-    CF --> WAF[AWS WAF]
-    WAF --> ALB[Application Load Balancer]
-    ALB --> COG[Cognito Authentication]
-    ALB --> ASG[EC2 Auto Scaling\n2 AZs]
-    ASG --> RDS[(RDS PostgreSQL\nMulti-AZ reference)]
-    ASG --> VPCE[VPC Endpoints]
-    ASG --> NAT[NAT Gateway per AZ]
-    ASG --> S3[S3]
-    S3 --> SQS[SQS]
-    SQS --> L[Lambda]
+flowchart TD
+    Client([Users / Clients])
+
+    subgraph Edge["AWS Edge & Ingress"]
+        R53[Route 53]
+        CF[CloudFront]
+        WAF[AWS WAF]
+        Cognito[Amazon Cognito]
+    end
+
+    subgraph VPC["VPC - Two Availability Zones"]
+        subgraph Public["Public Subnets"]
+            ALB[Application Load Balancer]
+            NATA[NAT Gateway A - reference]
+            NATB[NAT Gateway B - reference]
+        end
+
+        subgraph App["Private Application Subnets"]
+            ASG[EC2 Auto Scaling Group]
+            EBS[(Encrypted EBS)]
+        end
+
+        subgraph DB["Private Database Subnets"]
+            RDS[(RDS PostgreSQL)]
+        end
+
+        subgraph Endpoints["Private AWS Service Access"]
+            S3EP[S3 Gateway Endpoint]
+            SecretEP[Secrets Manager Interface Endpoint]
+            SSMEP[SSM + SSM Messages Interface Endpoints]
+        end
+    end
+
+    subgraph Events["Event-Driven Processing"]
+        S3[(S3 Application Data)]
+        SQS[SQS + DLQ]
+        Lambda[AWS Lambda]
+    end
+
+    subgraph Ops["Operations / Security"]
+        SSM[Systems Manager]
+        EICE[EC2 Instance Connect Endpoint]
+        CW[CloudWatch]
+        SNS[SNS]
+        CT[CloudTrail]
+        CTS3[(S3 Audit Logs)]
+        GD[GuardDuty]
+    end
+
+    Client --> R53 --> CF --> WAF --> ALB
+    ALB -->|Authenticate| Cognito
+    ALB -->|App traffic| ASG
+    ASG --> RDS
+    ASG --- EBS
+
+    ASG -. private AWS API access .-> Endpoints
+    S3EP --> S3
+    SecretEP --> ASG
+    SSMEP --> SSM
+    SSM -->|Session / Run Command| ASG
+    EICE -->|Private SSH path| ASG
+
+    ASG -. reference Internet egress .-> NATA
+    ASG -. reference Internet egress .-> NATB
+
+    S3 --> SQS --> Lambda
+    CW --> SNS
+    CT --> CTS3
+    GD --> CW
 ```
+
+The NAT Gateways and Multi-AZ database posture shown above are part of the **production/reference design**. The deployed lab used no NAT Gateway, one steady-state EC2 instance, and Single-AZ RDS to control recurring cost.
 
 More detail: [Architecture notes](docs/architecture.md)
 
@@ -88,6 +146,17 @@ These were the most transferable lessons from the lab:
 - Systems Manager can provide normal private administrative access without inbound SSH.
 - Terraform adoption of existing infrastructure requires careful imports and inspection of every proposed change.
 - A final no-drift plan is useful proof that the deployed environment and the IaC definition are synchronized.
+
+## Architecture Decision Records
+
+The repository captures the main design decisions as lightweight ADRs so the rationale is preserved alongside the implementation:
+
+- [ADR-001: Keep application compute private](docs/adr/ADR-001-private-compute-no-public-ip.md)
+- [ADR-002: Restrict ALB ingress to CloudFront origin-facing addresses](docs/adr/ADR-002-cloudfront-origin-restriction.md)
+- [ADR-003: Reverse-adopt the validated environment into Terraform](docs/adr/ADR-003-terraform-reverse-adoption.md)
+- [ADR-004: Separate the production reference design from the cost-optimized lab](docs/adr/ADR-004-reference-design-vs-lab-cost.md)
+
+These ADRs are intentionally short: each records the context, decision, rationale, and consequences rather than simply restating the AWS service configuration.
 
 ## Security and Network Design
 
@@ -136,6 +205,24 @@ Selected AWS services use private endpoints:
 The **production/reference design** also uses one NAT Gateway per AZ so private instances can reach public package repositories, third-party APIs, and other Internet destinations without receiving public IP addresses.
 
 The **hands-on lab omitted NAT Gateways** to reduce recurring cost and intentionally relied on VPC endpoints for the AWS services required by the application.
+
+## Security-Control Alignment
+
+This is an **architecture-to-control alignment**, not a claim of certification or audit compliance. The table shows how implemented controls relate to commonly used security principles.
+
+| Security objective | Implementation in this project | Illustrative alignment |
+|---|---|---|
+| Resource-focused access / Zero Trust principles | Cognito authentication, private compute, SG-to-SG authorization, no implicit trust based only on subnet location | NIST SP 800-207 Zero Trust principles |
+| Controlled public ingress | CloudFront + WAF; ALB HTTPS restricted to the AWS-managed CloudFront origin-facing prefix list | Defense-in-depth / controlled ingress |
+| Secure administration | Systems Manager for normal administration; no public IPs on EC2; EICE retained as a private SSH path | Reduced public management exposure; CIS-style hardening principle |
+| Secrets protection | Database credentials stored in Secrets Manager, retrieved by the EC2 IAM role through a private endpoint; Secrets Manager encrypts secret values with AWS KMS | NIST SP 800-53 IA-5 concepts / credential protection |
+| Data protection | Encrypted EBS, encrypted RDS storage, S3 server-side encryption, HTTPS/TLS on the application path | ISO/IEC 27001:2022 cryptography-related control objectives |
+| Audit and detection | Multi-region CloudTrail, CloudWatch alarms, SNS notifications, GuardDuty findings | Security monitoring, logging, and audit-evidence objectives |
+
+Two boundaries are important:
+
+- GuardDuty **Runtime Monitoring is disabled** in this lab; the project uses GuardDuty's enabled foundational and selected protection-plan capabilities rather than claiming host runtime-agent coverage.
+- Secrets Manager encryption is backed by AWS KMS, but this lab does **not** claim customer-managed KMS keys or automatic database-secret rotation unless those are explicitly added later.
 
 ## Cost-Conscious Lab Choices
 
@@ -378,6 +465,34 @@ terraform import aws_guardduty_detector.main `
 Individual security-group rules were also imported by their `sgr-...` IDs.
 
 Some GuardDuty detector feature resources did not support import with the AWS provider version used in the lab, so I added those resources to the configuration and adopted them through a reviewed apply against the existing detector.
+
+## DevSecOps and Governance Extension
+
+The deployed lab was managed interactively so I could inspect each Terraform plan during reverse-adoption. For an enterprise platform, I would put the same HCL behind a controlled CI/CD workflow rather than allow unrestricted workstation applies.
+
+A practical target workflow would be:
+
+```text
+Pull request
+  → terraform fmt / validate
+  → IaC security scan
+  → terraform plan
+  → human review / approval
+  → short-lived AWS authentication
+  → controlled terraform apply
+  → scheduled drift detection
+```
+
+Key controls I would add:
+
+1. **IaC security scanning** — Checkov, Trivy configuration scanning, or an equivalent policy engine to detect common Terraform and AWS misconfigurations before merge.
+2. **Plan review as an approval artifact** — preserve the Terraform plan output so reviewers can distinguish updates, replacements, and destructive actions before apply.
+3. **Short-lived CI identity** — use GitHub Actions or GitLab CI federation/OIDC to AWS instead of storing long-lived AWS access keys in CI secrets.
+4. **Remote state governance** — move local state to an encrypted remote backend with locking, access control, versioning, and recovery procedures.
+5. **Drift detection** — run scheduled `terraform plan -detailed-exitcode` and alert when the deployed environment diverges from the repository.
+6. **Policy gates** — require approval for security-sensitive changes such as public CIDRs, IAM privilege expansion, encryption changes, database exposure, or deletion of protective controls.
+
+This section describes the **next enterprise-operating model**, not functionality already implemented in the hands-on lab.
 
 ## Scope
 
