@@ -6,29 +6,38 @@ The project focuses on secure edge delivery, private compute, managed identity, 
 
 ## Architecture
 
+![AWS Secure Customer Portal reference architecture](docs/aws-secure-customer-portal-reference-architecture.svg)
+
+The diagram represents the **production/reference design**: multiple EC2 application instances across two Availability Zones, RDS Multi-AZ, one NAT Gateway per AZ, and VPC endpoints for selected AWS services.
+
+The hands-on lab intentionally reduced recurring cost while preserving the same architecture patterns:
+
+| Component | Reference design | Hands-on lab |
+|---|---|---|
+| EC2 Auto Scaling | Minimum 2 across 2 AZs | Min 1 / Desired 1 / Max 2 |
+| RDS PostgreSQL | Multi-AZ | Single-AZ |
+| NAT Gateway | One per AZ | Not deployed |
+| VPC endpoints | S3, Secrets Manager, SSM, SSM Messages | Deployed |
+| ALB / app subnets | Multi-AZ | Multi-AZ |
+
+The NAT Gateways provide general outbound Internet connectivity for private instances when workloads need public package repositories, third-party APIs, or AWS services without a VPC endpoint. Where PrivateLink or a gateway endpoint is available, the reference design keeps those AWS-service paths private.
+
+A compact logical flow remains:
+
 ```mermaid
 flowchart LR
     U[Users] --> R53[Route 53]
     R53 --> CF[CloudFront]
     CF --> WAF[AWS WAF]
     WAF --> ALB[Application Load Balancer]
-
     ALB --> COG[Cognito Authentication]
-    ALB --> ASG[EC2 Auto Scaling Group\nPrivate App Subnets / 2 AZs]
-    ASG --> RDS[(RDS PostgreSQL\nPrivate DB Subnets)]
-
-    ASG --> SM[Secrets Manager\nInterface Endpoint]
-    ASG --> S3[S3 Application Data\nGateway Endpoint]
-    ASG --> SSM[Systems Manager\nSSM + SSM Messages Endpoints]
-
+    ALB --> ASG[EC2 Auto Scaling\n2 AZs]
+    ASG --> RDS[(RDS PostgreSQL\nMulti-AZ reference)]
+    ASG --> VPCE[VPC Endpoints]
+    ASG --> NAT[NAT Gateway per AZ]
+    ASG --> S3[S3]
     S3 --> SQS[SQS]
     SQS --> L[Lambda]
-
-    CW[CloudWatch Alarm] --> SNS[SNS Email Alerts]
-    CT[CloudTrail] --> CTS3[S3 Audit Logs]
-    GD[GuardDuty] --> SEC[Threat Findings]
-
-    EICE[EC2 Instance Connect Endpoint] --> ASG
 ```
 
 More detail: [Architecture notes](docs/architecture.md)
@@ -41,7 +50,7 @@ More detail: [Architecture notes](docs/architecture.md)
 - **EC2 Auto Scaling** runs the application only in private subnets.
 - **Amazon RDS PostgreSQL** runs in private database subnets and is reachable only from the application security group.
 - **Secrets Manager** stores database credentials and is reached privately through an interface VPC endpoint.
-- **Amazon S3** is reached through a gateway endpoint; no NAT Gateway is required.
+- **Amazon S3** is reached through a gateway endpoint. The production/reference design also uses one NAT Gateway per AZ for general outbound Internet access while keeping supported AWS-service traffic on VPC endpoints.
 - **S3 → SQS → Lambda** provides asynchronous event processing.
 - **CloudWatch → SNS** provides operational alerting.
 - **CloudTrail** records management events to a private S3 bucket.
@@ -60,12 +69,16 @@ The VPC is segmented into:
 
 Application and database instances have no public IP addresses.
 
-There is **no NAT Gateway**. Access to required AWS services is provided through:
+In the **production/reference design**, each Availability Zone has its own NAT Gateway so private application instances can reach public package repositories, external APIs, and other Internet destinations without becoming publicly reachable. Each private application subnet routes outbound Internet traffic through the NAT Gateway in the same AZ.
+
+Selected AWS services still use private VPC endpoints:
 
 - S3 Gateway Endpoint
 - Secrets Manager Interface Endpoint
 - Systems Manager Interface Endpoint
 - SSM Messages Interface Endpoint
+
+The **hands-on lab omitted the NAT Gateways** to reduce recurring cost and intentionally relied on the VPC endpoints above for required AWS-service connectivity.
 
 ## Security Controls
 
