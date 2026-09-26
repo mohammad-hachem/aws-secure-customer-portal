@@ -304,6 +304,7 @@ The project followed a deliberate workflow:
 7. Apply only reviewed, non-destructive changes.
 8. Run a final drift check.
 
+Terraform source: [terraform/lab](terraform/lab/)  
 Full notes: [Terraform adoption and validation](docs/terraform.md)
 
 Representative workflow:
