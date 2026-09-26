@@ -2,17 +2,22 @@
 *.tfstate
 *.tfstate.*
 .terraform/
-.terraform.lock.hcl
 
 # Saved plans
 tfplan
 *.tfplan
+ltplan
 
 # Variable files / secrets
 *.tfvars
 *.tfvars.json
+!*.tfvars.example
 .env
 .env.*
+
+# Generated deployment packages / local exports
+terraform/lab/lambda/*.zip
+terraform/lab/cloudfront-config.json
 
 # Crash logs
 crash.log
